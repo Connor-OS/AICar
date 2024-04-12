@@ -5,18 +5,16 @@
 from __future__ import print_function
 import neat
 from vector_racing import indefinite_game_loop as drive_car
-
-# 2-input XOR inputs and expected outputs.
-xor_inputs = [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)]
-xor_outputs = [   (0.0,),     (1.0,),     (1.0,),     (0.0,)]
-
+from vector_racing import Car
+import pickle
+import visualize
 
 def eval_genomes(genomes, config):
     for genome_id, genome in genomes:
-        genome.fitness = 4.0
-        net = neat.nn.FeedForwardNetwork.create(genome, config)
-        genome.fitness = drive_car(net)
 
+        net = neat.nn.FeedForwardNetwork.create(genome, config)
+        ai_car = Car(brain=net)
+        genome.fitness = drive_car(ai_car)
 
 
 # Load configuration.
@@ -39,6 +37,8 @@ print('\nBest genome:\n{!s}'.format(winner))
 # Show output of the most fit genome against training data.
 print('\nOutput:')
 winner_net = neat.nn.FeedForwardNetwork.create(winner, config)
-for xi, xo in zip(xor_inputs, xor_outputs):
-    output = winner_net.activate(xi)
-    print("  input {!r}, expected output {!r}, got {!r}".format(xi, xo, output))
+
+with open("winning_net_04.txt", "wb") as file:
+    pickle.dump(winner, file)
+
+visualize.draw_net(config, winner, True)

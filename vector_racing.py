@@ -1,34 +1,18 @@
 #!/usr/bin/env python3
 """Car racing game written in Python.
 
-This module implements a simple car driving game in Python using object
-oriented programming principles and the Pygame engine. The aim of the game is
-to overtake other cars without colliding with them. If you do collide with
-either the other cars or the screen boundary, then it is game over.
-
-Attribution:
-    Splash Screen Image:
-        <a href='https://www.freepik.com/vectors/background'>
-            Background vector created by macrovector - www.freepik.com
-        </a>
-    Human Player Car Image:
-        <a href="https://www.freepik.com/vectors/car">
-            Car vector created by freepik - www.freepik.com
-        </a>
-    Computer Player Car Image:
-        https://pixabay.com/vectors/car-racing-speed-auto-green-312571/
+This module implements a simple car driving game in Python using the Pygame engine.
 
 """
 
 import math
-import pygame
-import random
 import time
 
+import pygame
 import numpy as np
 
 from course import generate_course
-from nn import move_car
+from recorder import PygameRecord
 
 # Game Configuration
 SCREEN_SIZE = (800, 800)
@@ -48,7 +32,6 @@ MESSAGE_GAME_OVER = 'You Crashed! Your score was: '
 CLOCK_FPS = 60
 DELTA_X_LEFT_CONSTANT = -5
 DELTA_X_RIGHT_CONSTANT = 5
-OVERTAKE_COMPUTER_SCORE_INCREMENT = 10
 
 # Colors
 BLACK = (0, 0, 0)
@@ -60,8 +43,8 @@ GREEN = (0, 255, 0)
 
 class Car:
 
-    def __init__(self, pos_x=0, pos_y=0, delta_x=DELTA_X_RIGHT_CONSTANT,
-                 delta_y=0, theta=90, delta_theta=0, human=False):
+    def __init__(self, pos_x=int(SCREEN_SIZE[0] / 2), pos_y=int(BOX_SIZE * 0.5), delta_x=0,
+                 delta_y=0, theta=90, delta_theta=0, brain=None):
         """Initialise a car object.
 
         Args:
@@ -81,23 +64,21 @@ class Car:
         self.y_box = pos_y / BOX_SIZE
         self.theta = theta
         self.delta_theta = delta_theta
-        self.human = human
         self.image = None
         self.bounding_box = None
         self.aa_bounding_box = None
         self.rays = np.zeros(5)
         self.current_box = 0
+        self.brain = brain
 
     def load_transform_image(self):
         """Load the car image from the filesystem."""
 
         self.image = pygame.image.load(
-            HUMAN_PLAYER_IMAGE_FILENAME).convert() if self.human else \
-            pygame.image.load(COMPUTER_PLAYER_IMAGE_FILENAME).convert()
+            HUMAN_PLAYER_IMAGE_FILENAME).convert()
         self.image.set_colorkey(BLACK)
         self.image = pygame.transform.scale(
-            self.image, HUMAN_PLAYER_IMAGE_SIZE) if self.human else \
-            pygame.transform.scale(self.image, COMPUTER_PLAYER_IMAGE_SIZE)
+            self.image, HUMAN_PLAYER_IMAGE_SIZE)
 
     def render_image(self):
         """Render the car image on the display."""
@@ -111,20 +92,28 @@ class Car:
 
     def move_up_down(self):
         """Move the car on the y-plane by delta y."""
-        self.pos_x += self.delta_y * math.sin(self.theta / 180 * math.pi)
-        self.pos_y += self.delta_y * math.cos(self.theta / 180 * math.pi)
+        if self.brain:
+            self.pos_x += -4 * math.sin(self.theta / 180 * math.pi)
+            self.pos_y += -4 * math.cos(self.theta / 180 * math.pi)
+        else:
+            self.pos_x += self.delta_y * math.sin(self.theta / 180 * math.pi)
+            self.pos_y += self.delta_y * math.cos(self.theta / 180 * math.pi)
 
-    def check_score_accumulated(self):
+    def check_score_accumulated(self, course):
         score = 0
 
-        current = course.path[self.current_box]
-        pygame.draw.rect(screen, GREEN, [current[0]*BOX_SIZE, current[1]*BOX_SIZE, BOX_SIZE, BOX_SIZE])
+        current = course.path[self.current_box % len(course.path)]
+        # pygame.draw.rect(screen, GREEN, [current[0]*BOX_SIZE, current[1]*BOX_SIZE, BOX_SIZE, BOX_SIZE])
 
         if pygame.Rect(current[0]*BOX_SIZE, current[1]*BOX_SIZE, BOX_SIZE, BOX_SIZE).collidepoint(self.pos_x, self.pos_y):
             self.current_box += 1
             score += 1
         return score
-    def shoot_rays(self):
+
+    def shoot_rays(self, course):
+        """
+        shoot rays out and measure there distance to nearest wall intersection
+        """
 
         x, y = self.bounding_box.center
 
@@ -152,7 +141,9 @@ class Car:
                 pygame.draw.line(screen, RED, (x, y), (point[0], point[1]))
             else:
                 #This should never happen, need to fix bug in get_intersection
-                self.rays[i] = -1
+                self.rays[i] = 0
+
+
 def gradient(p1, p2):
     if p1[0] == p2[0]:
         return None
@@ -194,8 +185,9 @@ def get_intersection(p1, p2, p3, p4):
             y = m1 * x + c1
 
     p = (x, y)
+    # pygame.draw.circle(screen, RED, (p[0], p[1]), 10, 2)
 
-    tolerance = 10
+    tolerance = 1
 
     if (min(p1[0], p2[0])-tolerance <= x <= max(p1[0], p2[0])+tolerance
             and min(p1[1], p2[1])-tolerance <= y <= max(p1[1], p2[1])+tolerance
@@ -214,7 +206,7 @@ class Course:
         self.course_grid, self.path = generate_course(GRID_SIZE)
         self.path = self.path[::-1] # reverse path
 
-        # def render_course(self):
+    def init_course(self):
         for i_y in range(GRID_SIZE):
             for i_x in range(GRID_SIZE):
 
@@ -276,85 +268,18 @@ def create_human_player():
         pos_x=int(SCREEN_SIZE[0] / 2),
         pos_y=int(BOX_SIZE * 0.5),
         delta_x=0,
-        delta_y=0,
-        human=True)
-
-    # Transform and scale the size of the player car image to fit the screen
-    human_player_car.load_transform_image()
+        delta_y=0)
 
     return human_player_car
 
 
-def create_computer_players():
-    """Create a list of car objects that act as obstacles."""
-
-    # Create computer car object obstacles
-    for n in range(COMPUTER_PLAYER_COUNT):
-        # Randomly initialise the initial (x, y) co-ordinate for this computer
-        init_x = random.randrange(
-            0, SCREEN_SIZE[0] - COMPUTER_PLAYER_IMAGE_SIZE[0])
-        init_y = random.randrange(-125, -25)
-
-        # Randomise the rate of change in the y-plane, starting with slow speeds
-        init_delta_y = random.randint(2, 3)
-
-        # Create a new computer player
-        global computer_players
-        computer_player_car = Car(
-            pos_x=init_x,
-            pos_y=init_y,
-            delta_x=0,
-            delta_y=init_delta_y,
-            human=False)
-
-        # Transform and scale the size of the computer player car image
-        computer_player_car.load_transform_image()
-
-        # Add the new computer player to the list of computer players
-        computer_players.append(computer_player_car)
-
-
-def collision_with_course():
+def collision_with_course(car, course):
     """Check whether the human car object has exceeded the screen boundaries
     along the x-plane."""
 
     for line in course.lines:
-        if human_player.bounding_box.clipline(line):
+        if car.bounding_box.clipline(line):
             return True
-    return False
-
-
-def collision_with_screen_boundaries():
-    """Check whether the human car object has exceeded the screen boundaries
-    along the x-plane."""
-
-    # Check whether the position of the player exceeds the screen boundaries
-    if human_player.pos_x > SCREEN_SIZE[0] - HUMAN_PLAYER_IMAGE_SIZE[0] or \
-            human_player.pos_x < 0:
-        return True
-    return False
-
-
-def collision_with_computer():
-    """Check whether the human car object has collided with one of the
-    computer car objects."""
-
-    # Check whether the player has collided with a computer player
-    for n in range(COMPUTER_PLAYER_COUNT):
-
-        # Get the current (x, y) position of the current computer player
-        computer_pos_x = computer_players[n].pos_x
-        computer_pos_y = computer_players[n].pos_y
-
-        if (human_player.pos_x + HUMAN_PLAYER_IMAGE_SIZE[0] > computer_pos_x) \
-                and (human_player.pos_x < computer_pos_x +
-                     COMPUTER_PLAYER_IMAGE_SIZE[0]) \
-                and (human_player.pos_y < computer_pos_y +
-                     COMPUTER_PLAYER_IMAGE_SIZE[1]) \
-                and (human_player.pos_y +
-                     HUMAN_PLAYER_IMAGE_SIZE[1] > computer_pos_y):
-            return True
-
     return False
 
 
@@ -364,7 +289,6 @@ def game_over(score):
     a brief pause."""
 
     # Display the game over message along with the score
-    global speed_increment
     font = pygame.font.Font(MESSAGE_FONT, MESSAGE_FONT_SIZE)
     text = font.render(MESSAGE_GAME_OVER + str(score), True, BLACK)
     text_rectangle = text.get_rect()
@@ -374,22 +298,19 @@ def game_over(score):
 
     # Pause the application before continuing with a new game loop
     time.sleep(2)
-
     # Reset the game parameters
-    global clock, human_player, computer_players, collision_event_detected
+    global clock, human_player, collision_event_detected
     clock = pygame.time.Clock()
     human_player = create_human_player()
-    computer_players = []
-    create_computer_players()
     collision_event_detected = False
     speed_increment = 2
 
-    # # Start a new game via the indefinite game loop
-    # indefinite_game_loop()
 
-
-def indefinite_game_loop(nn=None):
+def indefinite_game_loop(car=create_human_player(), course=Course(), recorder=None):
     """Vector racing game events and subsequent display rendering actions."""
+
+    car.load_transform_image()
+    course.init_course()
     score = 0
     start = time.time()
 
@@ -409,30 +330,30 @@ def indefinite_game_loop(nn=None):
 
                 # Left Key
                 if event.key == pygame.K_LEFT:
-                    human_player.delta_theta = 5
+                    car.delta_theta = 5
 
                 # Right Key
                 if event.key == pygame.K_RIGHT:
-                    human_player.delta_theta = -5
+                    car.delta_theta = -5
 
                 # up Key
                 if event.key == pygame.K_UP:
-                    human_player.delta_y += DELTA_X_LEFT_CONSTANT
+                    car.delta_y += DELTA_X_LEFT_CONSTANT
 
                 # down Key
                 if event.key == pygame.K_DOWN:
-                    human_player.delta_y += DELTA_X_RIGHT_CONSTANT
+                    car.delta_y += DELTA_X_RIGHT_CONSTANT
 
             # Keyboard Key Up Event
             if event.type == pygame.KEYUP:
 
                 # Left or Right Key
                 if event.key in [pygame.K_LEFT, pygame.K_RIGHT]:
-                    human_player.delta_theta = 0
+                    car.delta_theta = 0
 
                 # Up or Down Key
                 if event.key in [pygame.K_UP, pygame.K_DOWN]:
-                    human_player.delta_y = 0
+                    car.delta_y = 0
 
         # ----- UPDATE DISPLAY -----
 
@@ -440,67 +361,65 @@ def indefinite_game_loop(nn=None):
         screen.fill(GREY)
 
         #check score
-        score += human_player.check_score_accumulated()
-
+        if car.check_score_accumulated(course):
+            score += 1
+            start = time.time()
 
         # Whilst there is no collision event
         global collision_event_detected
 
-        if not collision_event_detected and (time.time() - start) < 5:
+        if not collision_event_detected and (time.time() - start) < 5 and score < 100:
 
             course.render_course()
 
             # Render the player car object
-            human_player.render_image()
+            car.render_image()
 
             # Ask AI what to do
-            if nn:
-                to_do = nn.activate(human_player.rays)
+            if car.brain:
+                to_do = car.brain.activate(car.rays)
+                active_neuron = max(to_do)
+                # Turn Left
+                if to_do[0] == active_neuron:
+                    car.delta_theta = 5
+                # Turn Right
+                elif to_do[1] == active_neuron:
+                    car.delta_theta = -5
+                # Turn Right
+                elif to_do[2] == active_neuron:
+                    car.delta_theta = 0
 
-                if to_do[0] < 0.5 and to_do[1] < 0.5:
-                    human_player.delta_theta = 0
-                # Left Key
-                if to_do[0] > to_do[1]:
-                    human_player.delta_theta = 5
-                # Right Key
-                elif to_do[1] > to_do[0]:
-                    human_player.delta_theta = -5
-
-                if to_do[2] < 0.5 and to_do[3] < 0.5:
-                    human_player.delta_y = 0
-                # Up Key
-                if to_do[2] > to_do[3]:
-                    human_player.delta_y = DELTA_X_LEFT_CONSTANT
-                # Down Key
-                elif to_do[3] > to_do[2]:
-                    human_player.delta_y = DELTA_X_RIGHT_CONSTANT
+                # if to_do[2] < 0.5 and to_do[3] < 0.5:
+                #     car.delta_y = 0
+                # # Up Key
+                # if to_do[2] > to_do[3]:
+                #     car.delta_y = DELTA_X_LEFT_CONSTANT
+                # # Down Key
+                # elif to_do[3] > to_do[2]:
+                #     car.delta_y = DELTA_X_RIGHT_CONSTANT
+                car.shoot_rays(course)
 
             # See event detection loop - keyboard key down events
-            human_player.turn_left_right()
-            human_player.move_up_down()
-            human_player.shoot_rays()
+            car.turn_left_right()
+            car.move_up_down()
 
-            # Check for a collision event with the screen boundaries
-            if collision_with_screen_boundaries():
-                collision_event_detected = True
 
             # Check for a collision event with the boundaries of the course
-            if collision_with_course():
-                collision_event_detected = True
-
-            # Check for a collision event with a computer player
-            if collision_with_computer():
+            if collision_with_course(car, course):
                 collision_event_detected = True
 
         # Collision event detected
         else:
-
             # Display the game over message and wait before starting a new game
+            if recorder:
+                recorder.save()
             game_over(score)
             return score
 
         # Update the contents of the entire display
         pygame.display.update()
+        if recorder:
+            recorder.add_frame()
         clock.tick(60)
 
 # Initialise the imported PyGame modules
@@ -515,20 +434,8 @@ request_window_close = False
 # Initialise a clock to track time
 clock = pygame.time.Clock()
 
-# Create Course
-course = Course()
-
-# Create the human player
-human_player = create_human_player()
-
 # Maintain the game loop until a collision event
 collision_event_detected = False
-
-# Keep score
-score = 0
-
-# Maintain a game speed incrementer
-speed_increment = 2
 
 if __name__ == "__main__":
     # Start the indefinite game loop
